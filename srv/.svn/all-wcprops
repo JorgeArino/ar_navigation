@@ -1,0 +1,11 @@
+K 25
+svn:wc:ra_dav:version-url
+V 85
+/robotnik/SummitXL/svn/!svn/ver/244/trunk/ros/hydro/summit_xl_robot/summit_xl_pad/srv
+END
+enable_disable_pad.srv
+K 25
+svn:wc:ra_dav:version-url
+V 108
+/robotnik/SummitXL/svn/!svn/ver/244/trunk/ros/hydro/summit_xl_robot/summit_xl_pad/srv/enable_disable_pad.srv
+END

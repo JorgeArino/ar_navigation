@@ -1,0 +1,12 @@
+qr_positions:
+    - {
+     frame_id: 'qr_frame_1',
+     position: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # [ pose(x,y,z), quaternion(x,y,z,w) ]
+     }
+    - {
+     frame_id: 'qr_frame_2',
+     position: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+     }
+    
+       
+
