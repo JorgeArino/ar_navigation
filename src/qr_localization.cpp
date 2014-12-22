@@ -3,6 +3,7 @@
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <geometry_msgs/Pose.h>
 #include <sensor_msgs/LaserScan.h>
+#include <nav_msgs/Odometry.h>
 #include <std_msgs/String.h>
 #include <sensor_msgs/Imu.h>
 #include <ar_track_alvar/AlvarMarkers.h>
@@ -42,6 +43,7 @@ class QRLocalization{
 		// Variables
 		ros::NodeHandle nh_;
 		ros::Subscriber ar_marker_sub_;
+		ros::Subscriber odom_sub_;
 		ros::ServiceServer save_qr_srv;
 		ros::Publisher ar_pose_pub_;
 		
@@ -64,13 +66,14 @@ class QRLocalization{
 		bool publish_tf;
 		
 		
+		
 			
 		// Methods
 		QRLocalization()
 		{
 			ROS_INFO("SETUP");
 			
-			desired_freq_ = 4.0;
+			desired_freq_ = 5.0;
 			
 			// new tf listener and broadcaster
 			tf_listener_ = new tf::TransformListener();
@@ -81,9 +84,8 @@ class QRLocalization{
 			
 			// Subscribers
 			ar_marker_sub_ = nh_.subscribe<ar_track_alvar::AlvarMarkers>("/ar_pose_marker", 1, &QRLocalization::ar_pose_callback, this);
+			//odom_sub_ = nh_.subscribe<nav_msgs::Odometry>("/odom", 1, &QRLocalization::odom_callback, this);
 			
-			// Services
-			save_qr_srv = nh_.advertiseService("/save_qr", &QRLocalization::save_qr, this);
 
 			qr_pose_msg_seq_ = 0;
 			publish_tf = true;
@@ -103,8 +105,8 @@ class QRLocalization{
 		  ////qr_positions_file << out.c_str();
 		  //qr_positions_file->close();
 
-			ROS_INFO("Waiting ...");
-			ros::Duration(5.0).sleep();
+			//ROS_INFO("Waiting ...");
+			//ros::Duration(5.0).sleep();
 			
 			ROS_INFO("Setup finished");
 		};
@@ -116,48 +118,12 @@ class QRLocalization{
 			while(ros::ok())
 			{
 				ros::spinOnce();
-				
-				// NODE MAIN LOOP
-				//ROS_INFO("Main loop");
-	
 				r.sleep();
 			}
 			
 			//qr_positions_file->close();
 			ros::shutdown();
 		};
-		
-		
-		bool save_qr(ar_navigation::save_qr::Request &req, ar_navigation::save_qr::Response &res )
-		{
-			ROS_INFO("Call to save_qr service");
-
-			int qr_code = req.qr_code;
-			
-			string qr_frame("ar_marker_");
-			string str_qr_code = boost::lexical_cast<string>( qr_code );
-			qr_frame.append(str_qr_code);
-			
-			string base_frame("camera_link");
-			string map_frame("map");
-			
-			ROS_INFO("Request transform from frame: %s, to: %s", map_frame.c_str(), qr_frame.c_str());
-			
-			tf::StampedTransform qr_to_map;
-	    try{
-	      tf_listener_->lookupTransform(map_frame, qr_frame,  
-	                               ros::Time(0), qr_to_map);
-	    }
-	    catch (tf::TransformException ex){
-	      ROS_ERROR("%s",ex.what());
-	      ros::Duration(1.0).sleep();
-	    }
-			ROS_INFO("QR transform requested x: %f, y: %f, z: %f", qr_to_map.getOrigin().x(), qr_to_map.getOrigin().y(), qr_to_map.getOrigin().z() );
-			
-			//add_qr_position_to_param(qr_code, qr_to_map);
-			
-			return true;
-		}
 		
 		
 		/*
@@ -174,56 +140,38 @@ class QRLocalization{
 				
 		void ar_pose_callback(const ar_track_alvar::AlvarMarkers::ConstPtr& msg)
 		{
-			ROS_INFO("AR pose markers received");
+			//ROS_INFO("AR pose markers received");
 
 			ros::Time start_callback_time = ros::Time::now();
 
 			int size = msg->markers.size();
+
+			float x_map_base;
+			float y_map_base;
+			float yaw_map_base;
 			
-			// publish the map->odom transform for each qr in the received message
+			// publish the map->base transform for each qr in the received message
 			for(int i=0; i<size; i++)
 			{
 				int qr_id = msg->markers[i].id;
 				//ROS_INFO("Ar marker id: %d", qr_id);
-				
-				ros::Time qr_pose_time(msg->markers[i].header.stamp.sec, msg->markers[i].header.stamp.nsec);
-				
-				ROS_INFO("start_callback_time, sec: %d, nsec: %d", start_callback_time.sec, start_callback_time.nsec);
-				ROS_INFO("ar_pose_time, sec: %d, nsec: %d", qr_pose_time.sec, qr_pose_time.nsec);
-				
 				
 				string qr_frame = get_qr_frame(qr_id);
 				string base_frame("base_footprint");
 				string odom_frame("odom");
 				string map_frame("map");
 				
-				bool bOK = true;
-				
-				
-				//// getting odom->qr transform
-				//tf::StampedTransform odom_to_qr;
-				//try{
-					//// wait until the transform is available
-					//tf_listener_->waitForTransform(odom_frame, qr_frame,
-                              //ros::Time(0), ros::Duration(3.0));
-          
-          ////ros::Time current_time_after_wait = ros::Time::now();
-					////ROS_INFO("current_time_after_wait, sec: %d, nsec: %d", current_time_after_wait.sec, current_time_after_wait.nsec);
-                              
-          //// get transform
-		      //tf_listener_->lookupTransform(odom_frame, qr_frame,  
-		                               //ros::Time(0), odom_to_qr); //ros::Time(0) means the latest transform available
-		                               
-		      //ros::Time odom_to_qr_time(odom_to_qr.stamp_.sec, odom_to_qr.stamp_.nsec);
-		      //ROS_INFO("odom_to_qr_time, sec: %d, nsec: %d", odom_to_qr_time.sec, odom_to_qr_time.nsec );
-		    //}
-		    //catch (tf::TransformException ex){
-		      //ROS_ERROR("%s",ex.what());
-		      //ros::Duration(1.0).sleep();
-		    //}
-		    
-		    
-		    
+				float x_msg = msg->markers[i].pose.pose.position.x;
+				float y_msg = msg->markers[i].pose.pose.position.y;
+			  tf::Quaternion quaternion_msg(msg->markers[i].pose.pose.orientation.x,
+																			msg->markers[i].pose.pose.orientation.y,
+																			msg->markers[i].pose.pose.orientation.z,
+																			msg->markers[i].pose.pose.orientation.w);
+				float yaw_msg = getYaw(quaternion_msg);
+				//ROS_INFO("x_msg: %f, y_msg: %f, yaw_msg: %f", x_msg, y_msg, yaw_msg);
+			
+
+
 		    // Get the known position of the qr marker
 		    for(int i=0; i<qr_positions_vector_.size(); i++)
 		    {
@@ -232,106 +180,72 @@ class QRLocalization{
 					{
 						//ROS_INFO("QR position exists");
 						
-						// get known transform map->qr
+						// get known transform map->qr 
 						const tf::Quaternion quaternion(qr_positions_vector_[i].pose.orientation.x,
 																			qr_positions_vector_[i].pose.orientation.y,
 																			qr_positions_vector_[i].pose.orientation.z,
 																			qr_positions_vector_[i].pose.orientation.w);
-						
 						const tf::Vector3 position(qr_positions_vector_[i].pose.position.x,
 																qr_positions_vector_[i].pose.position.y,
 																qr_positions_vector_[i].pose.position.z);		
-																
+															
 						tf::Transform map_to_qr(quaternion, position);
+						float map_to_qr_yaw = getYaw(quaternion); 
+						//ROS_INFO("map->qr x: %f,  y: %f, o: %f", map_to_qr.getOrigin().x(), map_to_qr.getOrigin().y(), map_to_qr_yaw);
 
-
-						// 1. get inverse of map->qr to obtain qr->map
-						tf::Stamped<tf::Pose> qr_to_map_stamped (map_to_qr.inverse(),
-                                              qr_pose_time,
-                                              qr_frame);
-						//ROS_INFO("map to qr inverse OK");
 						
-						// 2. get transform odom->map,  transforming qr->map to odom frame
-						// this sometimes gives extrapolation into the future error while looking for qr->odom transform
-						tf::Stamped<tf::Pose> odom_to_map;
+						float t_map_qr[3][3] = { {cos(map_to_qr_yaw), -sin(map_to_qr_yaw), map_to_qr.getOrigin().x()},
+																			{sin(map_to_qr_yaw), cos(map_to_qr_yaw), map_to_qr.getOrigin().y()},
+																			{0, 0, 1} };
+						float rot_qr_cam[3][3] = { {cos(-yaw_msg), -sin(-yaw_msg), 0},
+																			{sin(-yaw_msg), cos(-yaw_msg), 0},
+																			{0, 0, 1}};
+						float trans_qr_cam[3][3] = {{ 1, 0, -x_msg},
+																			{0, 1, -y_msg},
+																			{0, 0, 1}};
+																																
+						float beta_increment = PI/2; // before PI/4
+						float t_cam_base[3][3] = { {cos(beta_increment), -sin(beta_increment), 0},  // TODO: some translation here?
+																			{sin(beta_increment), cos(beta_increment), 0},
+																			{0, 0, 1}};		
+	
+						float t_aux_1[3][3];
+						float t_map_cam[3][3];
+						float t_map_base[3][3];
+						multiply3x3Matrix(t_map_qr, rot_qr_cam, t_aux_1);
+						multiply3x3Matrix(t_aux_1, trans_qr_cam, t_map_cam);
+						multiply3x3Matrix(t_map_cam, t_cam_base, t_map_base);
 						
-						try{
-							bOK = true;
-							
-							//tf_listener_->waitForTransform(odom_frame, qr_frame, ros::Time(0), ros::Duration(3.0));
-							//tf_listener_->waitForTransform(odom_frame, qr_frame, qr_pose_time, ros::Duration(3.0));
-                              
-              // get transform odom->qr to analyze times
-              tf::StampedTransform odom_to_qr;
-              tf_listener_->lookupTransform(odom_frame, qr_frame, ros::Time(0), odom_to_qr);
-              //tf_listener_->lookupTransform(odom_frame, qr_frame, qr_pose_time, odom_to_qr);
+						x_map_base = t_map_base[0][2];
+						y_map_base = t_map_base[1][2];
+						yaw_map_base = atan2(t_map_base[1][0],t_map_base[0][0]);																												
+						//ROS_INFO("x_map_base: %f, y_map_base: %f, yaw_map_base: %f", x_map_base, y_map_base, yaw_map_base);
 
-							ROS_INFO("odom->qr transform sec:%d, nsec:%d", odom_to_qr.stamp_.sec, odom_to_qr.stamp_.nsec);
-							if(odom_to_qr.stamp_.sec != qr_pose_time.sec || odom_to_qr.stamp_.nsec != qr_pose_time.nsec)
-								ROS_WARN("AR pose marker and AR transform are not synchroniced");
-
-							//ros::Time::Duration duration();
-								
-							// get required transform	
-							tf_listener_->transformPose( odom_frame,
-                                 qr_to_map_stamped,
-                                 odom_to_map);
-							
-
-				    }
-				    catch (tf::TransformException ex){
-				      ROS_ERROR("%s",ex.what());
-				      //ros::Duration(1.0).sleep();
-				      bOK = false;
-				      
-				    }
-				    
-						if(bOK)
+			    
+					
+						tf::Transform map_to_base(tf::createQuaternionFromYaw(yaw_map_base),  
+													 tf::Vector3(x_map_base, y_map_base, 0.0));
+						tf::StampedTransform map_to_base_stamped(map_to_base,
+											ros::Time::now(),  
+											map_frame, base_frame);
+            
+            // publish map->odom as a geometry_msgs/PoseWithCovarianceStamped
+         		qr_pose_msg_ = get_msg_from_tf(map_to_base_stamped);
+						ar_pose_pub_.publish(qr_pose_msg_);
+						
+						// publish transform map->base on the tf tree
+						if(publish_tf)
 						{
-                             
-                             
-	            // 3. get the inverse of odom->map to obtain map->odom 
-	            tf::Transform map_to_odom(tf::Quaternion(odom_to_map.getRotation()),
-																				tf::Point(odom_to_map.getOrigin()));    
-																				
-			        tf::StampedTransform map_to_odom_stamped(map_to_odom.inverse(),
-												                          qr_pose_time,  // qr_pose_time?? that can be almost 3 seconds in the past
-												                          map_frame, odom_frame);   
-						  //ROS_INFO("inverse of map->odom OK");
-	                                 
-	            //ROS_INFO("map->odom transform x:%f, y:%f, z:%f", map_to_odom_stamped.getOrigin().x(), map_to_odom_stamped.getOrigin().y(), map_to_odom_stamped.getOrigin().z());
-	            
-	            
-	            // 4. ignore z position ??
-	            map_to_odom_stamped.setOrigin(tf::Vector3(map_to_odom_stamped.getOrigin().x(),
-																	map_to_odom_stamped.getOrigin().y(),
-																	0.0));
-																	
-							// 5. set rotation in x,y to 0
-							float yaw = getYaw(map_to_odom_stamped.getRotation());
-							map_to_odom_stamped.setRotation(tf::createQuaternionFromYaw(yaw));
-	            
-	            // publish map->odom as a geometry_msgs/PoseWithCovarianceStamped
-	         		qr_pose_msg_ = get_msg_from_tf(map_to_odom_stamped);
-							ar_pose_pub_.publish(qr_pose_msg_);
-							
-							// publish transform map->odom on the tf tree
-							if(publish_tf)
-							{
-								this->tf_broadcaster_->sendTransform(map_to_odom_stamped);
-								//ROS_INFO("sending tf OK");
-							}
-							
-						} // end if(bOK)
+							this->tf_broadcaster_->sendTransform(map_to_base_stamped);
+						}
 						
 						break;  // Stop searching for a qr match
 					}
-				}
-			}
-			
-		}
-		
-		
+				} // end iterating qr_positions_vector_
+			} // end iterating msg->markers 
+		}  // end AR callback
+
+
 		/*
 		 *	\brief Returns a geometry_msgs::PoseWithCovarianceStamped obtained from a tf::StampedTransform
 		 */
@@ -360,7 +274,16 @@ class QRLocalization{
 			return qr_pose_msg;
 		}
 		
-		
+		void multiply3x3Matrix( float input1[3][3], float input2[3][3], float (&result)[3][3])
+		{
+			for(int i=0; i<3; i++)
+			{
+				for(int j=0; j<3; j++)
+				{
+					result[i][j] = input1[i][0]*input2[0][j] + input1[i][1]*input2[1][j] + input1[i][2]*input2[2][j];
+				}
+			}
+		}
 		
 		/*
 		 *	\brief Parses yaml file with the qr positions

@@ -103,12 +103,12 @@ include_directories(include)
 ## Declare a cpp executable
 add_executable(qr_saver src/qr_saver.cpp)
 add_executable(qr_localization src/qr_localization.cpp)
-#add_executable(RComponent src/RComponent.cpp src/SimpleComponent.cpp)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
 add_dependencies(qr_saver ar_navigation_generate_messages_cpp)
 add_dependencies(qr_localization ar_navigation_generate_messages_cpp)
+
 
 
 link_directories(/usr/lib/)

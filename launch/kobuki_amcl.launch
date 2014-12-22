@@ -3,7 +3,7 @@
   <!-- Run the map server -->
   <!-- node name="map_server" pkg="map_server" type="map_server" args="$(find my_map_package)/my_map.pgm my_map_resolution" -->
   <!-- node name="map_server" pkg="map_server" type="map_server" args="$(find kobuki_navigation)/map_robotnik3.yaml"/ -->
-  <node name="map_server" pkg="map_server" type="map_server" args="$(find ar_navigation)/maps/turtlebot_map_2.yaml"/>
+  <node name="map_server" pkg="map_server" type="map_server" args="$(find ar_navigation)/maps/turtlebot_map_3.yaml"/>
 
 
   <!--- Run AMCL -->
