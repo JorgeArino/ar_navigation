@@ -50,19 +50,19 @@ public:
   ros::Publisher ar_pose_pub_;
 
   float desired_freq_;
-    tf::TransformListener * tf_listener_;
-    tf::TransformBroadcaster * tf_broadcaster_;
+  tf::TransformListener * tf_listener_;
+  tf::TransformBroadcaster * tf_broadcaster_;
 
 
-    geometry_msgs::Pose amcl_pose;
-    geometry_msgs::PoseWithCovarianceStamped qr_pose_msg_;
+  geometry_msgs::Pose amcl_pose;
+  geometry_msgs::PoseWithCovarianceStamped qr_pose_msg_;
   int qr_pose_msg_seq_;
 
   // AlvarMarkers msg received
   //ar_track_alvar::AlvarMarkers current_alvar_markers_;
 
   // Waypoint array (not limited)
-    std::vector < qr_position > qr_positions_vector_;
+  std::vector < qr_position > qr_positions_vector_;
 
   // To publish the map_odom tf 
   bool publish_tf;
@@ -71,7 +71,7 @@ public:
 
 
   // Methods
-    QRLocalization ()
+  QRLocalization ()
   {
     ROS_INFO ("SETUP");
 
@@ -85,8 +85,7 @@ public:
     ar_pose_pub_ = nh_.advertise < geometry_msgs::PoseWithCovarianceStamped > ("ar_pose", 1);
 
     // Subscribers
-    ar_marker_sub_ =
-      nh_.subscribe < ar_track_alvar::AlvarMarkers > ("/ar_pose_marker", 1, &QRLocalization::ar_pose_callback, this);
+    ar_marker_sub_ = nh_.subscribe < ar_track_alvar::AlvarMarkers > ("/ar_pose_marker", 1, &QRLocalization::ar_pose_callback, this);
     //odom_sub_ = nh_.subscribe<nav_msgs::Odometry>("/odom", 1, &QRLocalization::odom_callback, this);
 
 
@@ -196,23 +195,21 @@ public:
 
 
           float t_map_qr[3][3] = { {cos (map_to_qr_yaw), -sin (map_to_qr_yaw), map_to_qr.getOrigin ().x ()},
-          {sin (map_to_qr_yaw), cos (map_to_qr_yaw), map_to_qr.getOrigin ().y ()},
-          {0, 0, 1}
-          };
+                                    {sin (map_to_qr_yaw), cos (map_to_qr_yaw), map_to_qr.getOrigin ().y ()},
+                                    {0, 0, 1}};
+          
           float rot_qr_cam[3][3] = { {cos (-yaw_msg), -sin (-yaw_msg), 0},
-          {sin (-yaw_msg), cos (-yaw_msg), 0},
-          {0, 0, 1}
-          };
+                                      {sin (-yaw_msg), cos (-yaw_msg), 0},
+                                      {0, 0, 1}};
+          
           float trans_qr_cam[3][3] = { {1, 0, -x_msg},
-          {0, 1, -y_msg},
-          {0, 0, 1}
-          };
+                                        {0, 1, -y_msg},
+                                        {0, 0, 1}};
 
           float beta_increment = PI / 2;        // before PI/4
           float t_cam_base[3][3] = { {cos (beta_increment), -sin (beta_increment), 0},  // TODO: some translation here?
-          {sin (beta_increment), cos (beta_increment), 0},
-          {0, 0, 1}
-          };
+                                      {sin (beta_increment), cos (beta_increment), 0},
+                                      {0, 0, 1}};
 
           float t_aux_1[3][3];
           float t_map_cam[3][3];
@@ -244,9 +241,9 @@ public:
 
           break;                // Stop searching for a qr match
         }
-      }                         // end iterating qr_positions_vector_
-    }                           // end iterating msg->markers 
-  }                             // end AR callback
+      } // end iterating qr_positions_vector_
+    }  // end iterating msg->markers 
+  }  // end AR callback
 
 
   /*
