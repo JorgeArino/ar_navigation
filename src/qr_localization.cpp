@@ -32,6 +32,7 @@ using namespace std;
 typedef struct
 {
   std::string frame_id;
+  int id;
   geometry_msgs::Pose pose;
 } qr_position;
 
@@ -45,33 +46,37 @@ public:
   // Variables
   ros::NodeHandle nh_;
   ros::Subscriber ar_marker_sub_;
-  ros::Subscriber odom_sub_;
-  ros::ServiceServer save_qr_srv;
   ros::Publisher ar_pose_pub_;
+  ros::Publisher initial_pose_pub_;
+
 
   float desired_freq_;
-    tf::TransformListener * tf_listener_;
-    tf::TransformBroadcaster * tf_broadcaster_;
+  tf::TransformListener * tf_listener_;
+  tf::TransformBroadcaster * tf_broadcaster_;
 
 
-    geometry_msgs::Pose amcl_pose;
-    geometry_msgs::PoseWithCovarianceStamped qr_pose_msg_;
+  geometry_msgs::Pose amcl_pose;
+  geometry_msgs::PoseWithCovarianceStamped qr_pose_msg_;
   int qr_pose_msg_seq_;
 
   // AlvarMarkers msg received
   //ar_track_alvar::AlvarMarkers current_alvar_markers_;
 
   // Waypoint array (not limited)
-    std::vector < qr_position > qr_positions_vector_;
+  std::vector < qr_position > qr_positions_vector_;
 
   // To publish the map_odom tf 
   bool publish_tf;
 
-
+  // Last marker that has been used to initialize amcl
+  int last_marker_index_;
+  
+  // Boolean to check if last marker used to initialize amcl has been received
+  bool last_marker_index_found_;
 
 
   // Methods
-    QRLocalization()
+  QRLocalization()
   {
     ROS_INFO("SETUP");
 
@@ -83,15 +88,16 @@ public:
 
     // Publishers                   
     ar_pose_pub_ = nh_.advertise < geometry_msgs::PoseWithCovarianceStamped > ("ar_pose", 1);
+		initial_pose_pub_ = nh_.advertise < geometry_msgs::PoseWithCovarianceStamped > ("initialpose", 1);
 
     // Subscribers
     ar_marker_sub_ =
       nh_.subscribe < ar_track_alvar::AlvarMarkers > ("/ar_pose_marker", 1, &QRLocalization::ar_pose_callback, this);
-    //odom_sub_ = nh_.subscribe<nav_msgs::Odometry>("/odom", 1, &QRLocalization::odom_callback, this);
 
 
     qr_pose_msg_seq_ = 0;
     publish_tf = true;
+    last_marker_index_ = -1;
 
     //YAML::Emitter out;
     //out << YAML::BeginSeq;
@@ -149,110 +155,165 @@ public:
 
     int size = msg->markers.size();
 
-    float x_map_base;
-    float y_map_base;
-    float yaw_map_base;
+    float x_map_base, y_map_base, yaw_map_base;
+    float x_msg, y_msg, yaw_msg;
+    
+    int marker_selected = -1;
+    int confidence;
+    
+		string qr_frame;
+		string base_frame("base_footprint");
+		string map_frame("map");
+		string qr_localization_frame("qr_localization");
 
-    // publish the map->base transform for each qr in the received message
+    
     for (int i = 0; i < size; i++)
     {
-      int qr_id = msg->markers[i].id;
-      //ROS_INFO("Ar marker id: %d", qr_id);
-
-      string qr_frame = get_qr_frame(qr_id);
-      string base_frame("base_footprint");
-      string odom_frame("odom");
-      string map_frame("map");
-
-      float x_msg = msg->markers[i].pose.pose.position.x;
-      float y_msg = msg->markers[i].pose.pose.position.y;
-      tf::Quaternion quaternion_msg(msg->markers[i].pose.pose.orientation.x,
-                                    msg->markers[i].pose.pose.orientation.y,
-                                    msg->markers[i].pose.pose.orientation.z, msg->markers[i].pose.pose.orientation.w);
-      float yaw_msg = getYaw(quaternion_msg);
-      //ROS_INFO("x_msg: %f, y_msg: %f, yaw_msg: %f", x_msg, y_msg, yaw_msg);
-
-
-
-      // Get the known position of the qr marker
-      for (int i = 0; i < qr_positions_vector_.size(); i++)
-      {
-        //ROS_INFO("Comparing %s with %s", qr_frame.c_str(), qr_positions_vector_[i].frame_id.c_str());
-        if (qr_frame.compare(qr_positions_vector_[i].frame_id) == 0)    // is 0 if the strings are equal
+			
+			// select an available marker ( the first one with a known position)
+			if(marker_selected == -1)
+			{
+	      int qr_id = msg->markers[i].id;
+	      //ROS_INFO("Ar marker id: %d", qr_id);
+	      qr_frame = get_qr_frame(qr_id);
+	
+        confidence = msg->markers[i].confidence;
+        
+        // discard low confidence markers
+	      if(confidence > 1)
+	      {
+		      x_msg = msg->markers[i].pose.pose.position.x;
+		      y_msg = msg->markers[i].pose.pose.position.y;
+		      tf::Quaternion quaternion_msg(msg->markers[i].pose.pose.orientation.x,
+		                                    msg->markers[i].pose.pose.orientation.y,
+		                                    msg->markers[i].pose.pose.orientation.z, msg->markers[i].pose.pose.orientation.w);
+		      yaw_msg = getYaw(quaternion_msg);
+		
+		
+		      // Get the known position of the qr marker
+		      for (int j = 0; j < qr_positions_vector_.size(); j++)
+		      {
+		        if (qr_frame.compare(qr_positions_vector_[j].frame_id) == 0)    // is 0 if the strings are equal
+		        {
+		          //ROS_INFO("QR position exists");
+							marker_selected = j;
+							break;
+						}	
+		      }
+		    }
+	    }
+    }   
+    
+    // look if the last marker used for amcl has been lost
+    if(last_marker_index_ != -1)
+    {
+			last_marker_index_found_ = false;
+	    for (int i = 0; i < size; i++)
+	    {
+				int qr_id = msg->markers[i].id;
+	      qr_frame = get_qr_frame(qr_id);
+	      
+        if (qr_frame.compare(qr_positions_vector_[last_marker_index_].frame_id) == 0)
         {
-          //ROS_INFO("QR position exists");
+					last_marker_index_found_ = true;
+					  	          
+				}	
+		  }
+		  if(last_marker_index_found_ == false)
+		  {
+		    last_marker_index_ = -1;
+		    ROS_INFO("marker lost");
+		  }
+    }
+          
+          
+    // only initialize amcl when there is a marker available and not has been used before      
+    if(marker_selected != -1)
+    { 
 
-          // get known transform map->qr 
-          const tf::Quaternion quaternion(qr_positions_vector_[i].pose.orientation.x,
-                                          qr_positions_vector_[i].pose.orientation.y,
-                                          qr_positions_vector_[i].pose.orientation.z,
-                                          qr_positions_vector_[i].pose.orientation.w);
-          const tf::Vector3 position(qr_positions_vector_[i].pose.position.x,
-                                     qr_positions_vector_[i].pose.position.y, qr_positions_vector_[i].pose.position.z);
-
-          tf::Transform map_to_qr(quaternion, position);
-          float map_to_qr_yaw = getYaw(quaternion);
-          //ROS_INFO("map->qr x: %f,  y: %f, o: %f", map_to_qr.getOrigin().x(), map_to_qr.getOrigin().y(), map_to_qr_yaw);
-
-
-          float t_map_qr[3][3] = {
-            {cos(map_to_qr_yaw), -sin(map_to_qr_yaw), map_to_qr.getOrigin().x()},
-            {sin(map_to_qr_yaw), cos(map_to_qr_yaw), map_to_qr.getOrigin().y()},
-            {0, 0, 1}
-          };
-
-          float rot_qr_cam[3][3] = {
-            {cos(-yaw_msg), -sin(-yaw_msg), 0},
-            {sin(-yaw_msg), cos(-yaw_msg), 0},
-            {0, 0, 1}
-          };
-
-          float trans_qr_cam[3][3] = {
-            {1, 0, -x_msg},
-            {0, 1, -y_msg},
-            {0, 0, 1}
-          };
-
-          float beta_increment = PI / 2;        // before PI/4
-          float t_cam_base[3][3] = {
-            {cos(beta_increment), -sin(beta_increment), 0},     // TODO: some translation here?
-            {sin(beta_increment), cos(beta_increment), 0},
-            {0, 0, 1}
-          };
-
-          float t_aux_1[3][3];
-          float t_map_cam[3][3];
-          float t_map_base[3][3];
-          multiply3x3Matrix(t_map_qr, rot_qr_cam, t_aux_1);
-          multiply3x3Matrix(t_aux_1, trans_qr_cam, t_map_cam);
-          multiply3x3Matrix(t_map_cam, t_cam_base, t_map_base);
-
-          x_map_base = t_map_base[0][2];
-          y_map_base = t_map_base[1][2];
-          yaw_map_base = atan2(t_map_base[1][0], t_map_base[0][0]);
-          //ROS_INFO("x_map_base: %f, y_map_base: %f, yaw_map_base: %f", x_map_base, y_map_base, yaw_map_base);
-
-
-
-          tf::Transform map_to_base(tf::createQuaternionFromYaw(yaw_map_base),
-                                    tf::Vector3(x_map_base, y_map_base, 0.0));
-          tf::StampedTransform map_to_base_stamped(map_to_base, ros::Time::now(), map_frame, base_frame);
-
-          // publish map->odom as a geometry_msgs/PoseWithCovarianceStamped
-          qr_pose_msg_ = get_msg_from_tf(map_to_base_stamped);
-          ar_pose_pub_.publish(qr_pose_msg_);
-
-          // publish transform map->base on the tf tree
-          if (publish_tf)
-          {
-            this->tf_broadcaster_->sendTransform(map_to_base_stamped);
-          }
-
-          break;                // Stop searching for a qr match
-        }
-      }                         // end iterating qr_positions_vector_
-    }                           // end iterating msg->markers 
-  }                             // end AR callback
+			// get known transform map->qr 
+			const tf::Quaternion quaternion(qr_positions_vector_[marker_selected].pose.orientation.x,
+																			qr_positions_vector_[marker_selected].pose.orientation.y,
+																			qr_positions_vector_[marker_selected].pose.orientation.z,
+																			qr_positions_vector_[marker_selected].pose.orientation.w);
+			const tf::Vector3 position(qr_positions_vector_[marker_selected].pose.position.x,
+																 qr_positions_vector_[marker_selected].pose.position.y, qr_positions_vector_[marker_selected].pose.position.z);
+	
+			tf::Transform map_to_qr(quaternion, position);
+			float map_to_qr_yaw = getYaw(quaternion);
+	
+	
+			float t_map_qr[3][3] = {
+				{cos(map_to_qr_yaw), -sin(map_to_qr_yaw), map_to_qr.getOrigin().x()},
+				{sin(map_to_qr_yaw), cos(map_to_qr_yaw), map_to_qr.getOrigin().y()},
+				{0, 0, 1}
+			};
+	
+			float rot_qr_cam[3][3] = {
+				{cos(-yaw_msg), -sin(-yaw_msg), 0},
+				{sin(-yaw_msg), cos(-yaw_msg), 0},
+				{0, 0, 1}
+			};
+	
+			float trans_qr_cam[3][3] = {
+				{1, 0, -x_msg},
+				{0, 1, -y_msg},
+				{0, 0, 1}
+			};
+	
+			float beta_increment = PI / 2; 
+			float t_cam_base[3][3] = {
+				{cos(beta_increment), -sin(beta_increment), 0},
+				{sin(beta_increment), cos(beta_increment), 0},
+				{0, 0, 1}
+			};
+	
+			float t_aux_1[3][3];
+			float t_map_cam[3][3];
+			float t_map_base[3][3];
+			
+			// get transform map->base
+			multiply3x3Matrix(t_map_qr, rot_qr_cam, t_aux_1);
+			multiply3x3Matrix(t_aux_1, trans_qr_cam, t_map_cam);
+			multiply3x3Matrix(t_map_cam, t_cam_base, t_map_base);
+	
+			x_map_base = t_map_base[0][2];
+			y_map_base = t_map_base[1][2];
+			yaw_map_base = atan2(t_map_base[1][0], t_map_base[0][0]);
+			//ROS_INFO("x_map_base: %f, y_map_base: %f, yaw_map_base: %f", x_map_base, y_map_base, yaw_map_base);
+	
+	
+	
+			tf::Transform map_to_base(tf::createQuaternionFromYaw(yaw_map_base),
+																tf::Vector3(x_map_base, y_map_base, 0.0));
+			tf::StampedTransform map_to_base_stamped(map_to_base, ros::Time::now(), map_frame, qr_localization_frame);
+	
+			// publish map->base as a geometry_msgs/PoseWithCovarianceStamped
+			qr_pose_msg_ = get_msg_from_tf(map_to_base_stamped);
+			ar_pose_pub_.publish(qr_pose_msg_);
+	
+			// publish transform map->base on the tf tree
+			if (publish_tf)
+			{
+				this->tf_broadcaster_->sendTransform(map_to_base_stamped);
+			}
+			
+			if(last_marker_index_ == -1){
+				
+				// save the last id that was used to initialize amcl
+			  last_marker_index_ = marker_selected;
+				
+				ROS_WARN("Initializing amcl, with marker_index: %d, x: %f, y: %f, yaw: %f, confidence: %d", qr_positions_vector_[marker_selected].id, x_map_base, y_map_base, yaw_map_base, confidence);
+				
+				// initialize amcl filter
+				initial_pose_pub_.publish(qr_pose_msg_);
+		  }
+    }
+    
+    
+    
+                              
+  } // end AR callback
 
 
   /*
@@ -271,8 +332,11 @@ public:
 
     geometry_msgs::PoseWithCovariance qr_pose_cov;
     qr_pose_cov.pose = qr_pose;
-    // TODO: fill covariance
 
+    qr_pose_cov.covariance[0] = 0.001;  // x pos
+    qr_pose_cov.covariance[7] = 0.001;  // y pos
+    qr_pose_cov.covariance[35] = 0.001; // z orientation (yaw)
+    
     geometry_msgs::PoseWithCovarianceStamped qr_pose_msg;
     qr_pose_msg.header.seq = qr_pose_msg_seq_;
     qr_pose_msg_seq_++;
@@ -318,7 +382,9 @@ public:
               //read positions 
               std::string frame_id = qr_positions_array[i]["frame_id"];
               qr_position_aux.frame_id = frame_id;
-              ROS_INFO("Frame_id: %s", frame_id.c_str());
+              int id = atoi(frame_id.substr(10,100).c_str());
+              ROS_INFO("Frame_id: %s, id: %d", frame_id.c_str(), id);
+              qr_position_aux.id = id;
               qr_position_aux.pose.position.x = qr_positions_array[i]["position"][0];
               qr_position_aux.pose.position.y = qr_positions_array[i]["position"][1];
               qr_position_aux.pose.position.z = qr_positions_array[i]["position"][2];

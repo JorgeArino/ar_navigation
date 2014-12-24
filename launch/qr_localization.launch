@@ -1,7 +1,9 @@
 <?xml version="1.0"?>
 <launch>
 
-	<include file="$(find ar_navigation)/launch/kobuki_map_server.launch"/>
+	<!--include file="$(find ar_navigation)/launch/kobuki_map_server.launch"/-->
+
+	<include file="$(find ar_navigation)/launch/kobuki_amcl.launch"/>
 
 	<rosparam command="load" file="$(find ar_navigation)/qr_positions/qr_positions.yaml"/>
 
